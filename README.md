@@ -5,8 +5,8 @@ Utility scripts for Hyprland: screenshot tool, hotkeys, notifications
 ## Structure
 hypr-utils/
 ├── screenshot/
-│   ├── screenshot.sh      # Screenshot tool with rofi menu
-│   └── screenshot.rasi    # Rofi theme for screenshot menu
+│   ├── screenshot.sh       # Screenshot tool with rofi menu
+│   └── screenshot.rasi     # Rofi theme for screenshot menu
 └── hotkeys/
 ├── scripts/
 │   ├── volume-notify.sh      # Volume change notification
@@ -21,11 +21,15 @@ hypr-utils/
 
 ## Dependencies
 
-- grim, slurp, swappy, hyprshot
-- rofi-wayland, wl-clipboard
-- ttf-nerd-fonts-symbols
-- pamixer, brightnessctl
-- acpid, dunst
+| Tool | Purpose |
+|------|---------|
+| grim, slurp | Screenshot capture |
+| swappy, hyprshot | Screenshot editor |
+| rofi-wayland | Screenshot menu |
+| wl-clipboard | Clipboard support |
+| ttf-nerd-fonts-symbols | Icons |
+| pamixer, brightnessctl | Volume/brightness control |
+| acpid, dunst | Hotkey daemon, notifications |
 
 ## Installation
 

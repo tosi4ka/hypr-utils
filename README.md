@@ -1,27 +1,36 @@
-# hypr-screenshot
+# hypr-utils
 
-Screenshot tool for Hyprland/Wayland with rofi menu and swappy editor
+Utility scripts for Hyprland: screenshot tool, hotkeys, notifications
+
+## Structure
+hypr-utils/
+├── screenshot/
+│   ├── screenshot.sh      # Screenshot tool with rofi menu
+│   └── screenshot.rasi    # Rofi theme for screenshot menu
+└── hotkeys/
+├── scripts/
+│   ├── volume-notify.sh      # Volume change notification
+│   ├── brightness-notify.sh  # Brightness change notification
+│   └── mic-toggle.sh         # Microphone toggle
+└── acpi/
+├── mute
+├── volumeup
+├── volumedown
+├── brightnessup
+└── brightnessdown
 
 ## Dependencies
 
-- grim
-- slurp
-- swappy
-- hyprshot
-- rofi-wayland
-- wl-clipboard
+- grim, slurp, swappy, hyprshot
+- rofi-wayland, wl-clipboard
 - ttf-nerd-fonts-symbols
+- pamixer, brightnessctl
+- acpid, dunst
 
 ## Installation
 
 ```bash
-git clone git@github.com:tosi4ka/hypr-screenshot.git
-cd hypr-screenshot
-cp screenshot.sh ~/.local/bin/
-cp screenshot.rasi ~/.config/rofi/
-chmod +x ~/.local/bin/screenshot.sh
+git clone git@github.com:tosi4ka/hypr-utils.git
+cd hypr-utils
+./install.sh
 ```
-
-## Usage
-
-Bind `screenshot.sh` to a key in hyprland.conf:

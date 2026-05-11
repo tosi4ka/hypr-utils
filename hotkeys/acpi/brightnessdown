@@ -1,0 +1,2 @@
+event=video/brightnessdown
+action=su tosi4ka -c "WAYLAND_DISPLAY=wayland-1 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus XDG_RUNTIME_DIR=/run/user/1000 /home/tosi4ka/.local/bin/brightness-notify.sh"

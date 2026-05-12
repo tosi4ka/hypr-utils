@@ -16,6 +16,8 @@ cp hotkeys/scripts/brightness-notify.sh ~/.local/bin/
 cp hotkeys/scripts/mic-toggle.sh ~/.local/bin/
 cp hotkeys/scripts/rfkill-notify.sh ~/.local/bin/
 cp hotkeys/scripts/touchpad-notify.sh ~/.local/bin/
+cp hotkeys/scripts/auto-layout.sh ~/.local/bin/
+chmod +x ~/.local/bin/auto-layout.sh
 chmod +x ~/.local/bin/volume-notify.sh ~/.local/bin/brightness-notify.sh ~/.local/bin/mic-toggle.sh ~/.local/bin/rfkill-notify.sh ~/.local/bin/touchpad-notify.sh
 
 echo "[3/4] Installing ACPI events..."

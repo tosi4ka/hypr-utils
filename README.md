@@ -22,6 +22,7 @@ hypr-utils/
 │   └── monitor-picker.py
 ├── hotkeys/
 │   ├── scripts/
+│   │   ├── auto-layout.sh
 │   │   ├── volume-notify.sh
 │   │   ├── brightness-notify.sh
 │   │   ├── mic-toggle.sh
@@ -62,6 +63,9 @@ bind = $mod, P,  exec, ~/.local/bin/monitor-picker.py
 bind = , XF86RFKill,      exec, ~/.local/bin/rfkill-notify.sh
 bind = , XF86TouchpadOff, exec, ~/.local/bin/touchpad-notify.sh off
 bind = , XF86TouchpadOn,  exec, ~/.local/bin/touchpad-notify.sh on
+
+# auto-layout (starts automatically)
+exec-once = ~/.local/bin/auto-layout.sh
 ```
 
 ## Stack

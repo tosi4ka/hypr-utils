@@ -2,7 +2,6 @@
 VOL=$(pamixer --get-volume)
 MUTED=$(pamixer --get-mute)
 
-# Определяем активное устройство
 SINK=$(pactl get-default-sink)
 
 if [[ "$SINK" == *"bluez"* ]]; then
@@ -16,13 +15,13 @@ else
 fi
 
 if [ "$MUTED" = "true" ]; then
-    notify-send "🔇 Звук" " " \
+    notify-send "🔇 Volume" " " \
         --urgency=normal \
         --expire-time=1500 \
         --hint=string:x-dunst-stack-tag:volume \
         --hint=int:value:0
 else
-    notify-send "$ICON Звук" " " \
+    notify-send "$ICON Volume" " " \
         --urgency=normal \
         --expire-time=1500 \
         --hint=string:x-dunst-stack-tag:volume \

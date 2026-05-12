@@ -3,7 +3,7 @@ BRIGHTNESS=$(brightnessctl get)
 MAX=$(brightnessctl max)
 PERCENT=$(( BRIGHTNESS * 100 / MAX ))
 
-notify-send "☀️ Яркость" " " \
+notify-send "☀️ Brightness" " " \
     --urgency=normal \
     --expire-time=1500 \
     --hint=string:x-dunst-stack-tag:brightness \

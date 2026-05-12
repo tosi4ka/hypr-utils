@@ -5,13 +5,13 @@ MUTED=$(pactl get-source-mute "$MIC" | grep -c "yes")
 
 if [ "$MUTED" -eq 1 ]; then
     pactl set-source-mute "$MIC" 0
-    notify-send "🎙️ Микрофон" "Включён" \
+    notify-send "🎙️ Microphone" "On" \
         --urgency=normal \
         --expire-time=2000 \
         --hint=string:x-dunst-stack-tag:mic
 else
     pactl set-source-mute "$MIC" 1
-    notify-send "🔇 Микрофон" "Выключен" \
+    notify-send "🔇 Microphone" "Off" \
         --urgency=normal \
         --expire-time=2000 \
         --hint=string:x-dunst-stack-tag:mic

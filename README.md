@@ -9,7 +9,7 @@ Covers hotkeys, notifications, screenshot picker, and monitor mode switching.
 | ------------------ | ------------------------------------------------------------------------------------ |
 | `screenshot/`      | GTK3 popup for choosing screenshot mode (zone, window, monitor, all)                 |
 | `monitor/`         | GTK3 popup for switching display modes (laptop, mirror, extend, external)            |
-| `hotkeys/scripts/` | Notification scripts for hardware keys (volume, brightness, mic, airplane, touchpad) |
+| `hotkeys/scripts/` | Notification scripts, wallpaper picker, auto-layout switcher                         |
 | `hotkeys/acpi/`    | ACPI event handlers for keys that bypass Wayland                                     |
 
 ## Structure
@@ -23,6 +23,9 @@ hypr-utils/
 ├── hotkeys/
 │   ├── scripts/
 │   │   ├── auto-layout.sh
+│   │   ├── wallpaper-picker.sh
+│   │   ├── wallpaper-slideshow.sh
+│   │   ├── restart-scripts.sh
 │   │   ├── volume-notify.sh
 │   │   ├── brightness-notify.sh
 │   │   ├── mic-toggle.sh
@@ -44,6 +47,8 @@ hypr-utils/
 | `python-gobject`, `gtk-layer-shell` | GTK3 popup windows on Wayland |
 | `pamixer`, `brightnessctl`          | Volume and brightness control |
 | `rfkill`                            | Airplane mode toggle          |
+| `socat`                             | Hyprland event socket reader  |
+| `hyprpaper`                         | Wallpaper daemon              |
 | `acpid`, `dunst`                    | ACPI events, notifications    |
 
 ## Installation
@@ -63,6 +68,8 @@ bind = $mod, P,  exec, ~/.local/bin/monitor-picker.py
 bind = , XF86RFKill,      exec, ~/.local/bin/rfkill-notify.sh
 bind = , XF86TouchpadOff, exec, ~/.local/bin/touchpad-notify.sh off
 bind = , XF86TouchpadOn,  exec, ~/.local/bin/touchpad-notify.sh on
+bind = $mod, W,           exec, ~/.local/bin/wallpaper-picker.sh
+bind = $mod SHIFT, R,     exec, ~/.local/bin/restart-scripts.sh
 
 # auto-layout (starts automatically)
 exec-once = ~/.local/bin/auto-layout.sh

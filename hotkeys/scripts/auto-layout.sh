@@ -18,7 +18,7 @@ socat -U - UNIX-CONNECT:"$SOCKET" | while IFS= read -r line; do
         activelayout)
             kb="${data%%,*}"
             layout="${data#*,}"
-            if [[ "$kb" == *"sonix"* ]]; then
+            if [[ "$kb" == *"x85"* ]]; then
                 if [[ "$in_kitty" -eq 1 ]]; then
                     [[ "$layout" == *"Russian"* ]] && hyprctl switchxkblayout all 0 >/dev/null
                 else

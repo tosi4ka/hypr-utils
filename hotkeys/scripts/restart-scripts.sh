@@ -5,6 +5,5 @@ sleep 0.3
 gsettings set org.gnome.desktop.interface color-scheme prefer-dark
 waybar &
 ~/.local/bin/auto-layout.sh &
+nmcli device wifi rescan &>/dev/null &
 notify-send "Scripts" "Restarted" --urgency=low --expire-time=1500 --hint=int:transient:1
-
-

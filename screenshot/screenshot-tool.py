@@ -83,13 +83,9 @@ def get_timestamp():
 def copy_to_clipboard(path):
     try:
         with open(path, "rb") as f:
-            data = f.read()
-        proc = subprocess.Popen(
-            ["wl-copy", "--type", "image/png"],
-            stdin=subprocess.PIPE
-        )
-        proc.stdin.write(data)
-        proc.stdin.close()
+            subprocess.Popen(
+                ["wl-copy", "--type", "image/png"], stdin=f, start_new_session=True
+            )
     except Exception as e:
         print(f"[screenshot] clipboard error: {e}")
 

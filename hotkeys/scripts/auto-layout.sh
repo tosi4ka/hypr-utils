@@ -1,7 +1,14 @@
 #!/bin/bash
 SOCKET="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
-prev_layout=0
 in_kitty=0
+
+init=$(hyprctl devices -j | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kbs=[k for k in d.get('keyboards',[]) if 'keyboard' in k['name'].lower()]
+print(kbs[0]['active_keymap'] if kbs else '')
+" 2>/dev/null)
+[[ "$init" == *"Russian"* ]] && prev_layout=1 || prev_layout=0
 
 socat -U - UNIX-CONNECT:"$SOCKET" | while IFS= read -r line; do
     event="${line%%>>*}"

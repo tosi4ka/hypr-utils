@@ -18,10 +18,14 @@ socat -U - UNIX-CONNECT:"$SOCKET" | while IFS= read -r line; do
         activelayout)
             kb="${data%%,*}"
             layout="${data#*,}"
-            if [[ "$kb" == *"keyboard"* && "$in_kitty" -eq 0 ]]; then
-                [[ "$layout" == *"Russian"* ]] && prev_layout=1 || prev_layout=0
+            if [[ "$kb" == *"sonix"* ]]; then
+                if [[ "$in_kitty" -eq 1 ]]; then
+                    [[ "$layout" == *"Russian"* ]] && hyprctl switchxkblayout all 0 >/dev/null
+                else
+                    [[ "$layout" == *"Russian"* ]] && prev_layout=1 || prev_layout=0
+                fi
             fi
-            ;;
+            ;;            
         activewindow)
             class="${data%%,*}"
             if [[ "$class" == "kitty" ]]; then

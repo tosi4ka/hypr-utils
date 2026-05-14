@@ -44,8 +44,8 @@ else
         echo "{\"text\": \"󰎆\", \"tooltip\": \"No media\"}"; exit 0
     fi
     STATUS=$(playerctl status 2>/dev/null)
-    TITLE=$(playerctl metadata title 2>/dev/null | cut -c1-35)
-    ARTIST=$(playerctl metadata artist 2>/dev/null | cut -c1-20)
+    TITLE=$(playerctl metadata title 2>/dev/null | cut -c1-35 | sed 's/"/\\"/g')
+    ARTIST=$(playerctl metadata artist 2>/dev/null | cut -c1-20 | sed 's/"/\\"/g')
     PLAYER=$(playerctl metadata --format "{{playerName}}" 2>/dev/null)
     APP_ICON=$(get_app_icon "$PLAYER")
     if [ "$STATUS" = "Playing" ]; then

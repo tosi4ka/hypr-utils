@@ -128,7 +128,6 @@ class TrayPopup(Gtk.Window):
                 if tip:
                     btn.set_tooltip_text(tip)
                 btn.add(Gtk.Image.new_from_pixbuf(pb))
-                btn.connect("clicked", self._activate, session, bus_name, obj_path)
                 btn.connect("button-press-event", self._btn_press, session, bus_name, obj_path)
                 box.pack_start(btn, False, False, 0)
 
@@ -156,22 +155,19 @@ class TrayPopup(Gtk.Window):
             print(f"[tray] watcher error: {e}")
             return []
 
-    def _activate(self, _btn, session, bus_name, obj_path):
-        try:
-            dbus.Interface(session.get_object(bus_name, obj_path), ITEM_IFACE).Activate(0, 0)
-        except Exception as e:
-            print(f"[tray] activate error: {e}")
-        self._quit()
-
     def _btn_press(self, _btn, event, session, bus_name, obj_path):
-        if event.button == 3:
+        if event.button == 1:
+            self.hide()
             try:
-                dbus.Interface(
-                    session.get_object(bus_name, obj_path), ITEM_IFACE
-                ).ContextMenu(int(event.x_root), int(event.y_root))
+                dbus.Interface(session.get_object(bus_name, obj_path), ITEM_IFACE).Activate(
+                    int(event.x_root), int(event.y_root)
+                )
             except Exception as e:
-                print(f"[tray] context menu error: {e}")
-            self._quit()
+                print(f"[tray] activate error: {e}")
+            GLib.timeout_add(300, Gtk.main_quit)
+            return True
+        if event.button == 3:
+            self._show_menu(event, session, bus_name, obj_path)
             return True
         return False
 
@@ -199,6 +195,46 @@ class TrayPopup(Gtk.Window):
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), p, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+
+    def _show_menu(self, event, session, bus_name, obj_path):
+        menu = Gtk.Menu()
+
+        item_toggle = Gtk.MenuItem(label="Показать / Скрыть")
+        item_toggle.connect("activate", lambda _: self._do_activate(session, bus_name, obj_path))
+        menu.append(item_toggle)
+
+        item_quit = Gtk.MenuItem(label="Завершить")
+        item_quit.connect("activate", lambda _: self._do_kill(bus_name))
+        menu.append(item_quit)
+
+        menu.show_all()
+        menu.connect("hide", lambda _: self._quit())
+        menu.popup_at_pointer(event)
+
+    def _do_activate(self, session, bus_name, obj_path):
+        self.hide()
+        try:
+            dbus.Interface(session.get_object(bus_name, obj_path), ITEM_IFACE).Activate(0, 0)
+        except Exception as e:
+            print(f"[tray] activate error: {e}")
+        GLib.timeout_add(300, Gtk.main_quit)
+
+    def _do_kill(self, bus_name):
+        import os
+        import signal as sig
+        try:
+            dbus_obj = dbus.SessionBus().get_object(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus"
+            )
+            pid = int(
+                dbus.Interface(dbus_obj, "org.freedesktop.DBus").GetConnectionUnixProcessID(
+                    bus_name
+                )
+            )
+            os.kill(pid, sig.SIGKILL)
+        except Exception as e:
+            print(f"[tray] kill error: {e}")
+        self._quit()
 
     def _quit(self):
         Gtk.main_quit()

@@ -1,9 +1,11 @@
 #!/bin/bash
 pkill -f auto-layout.sh
 pkill -f waybar-calendar-notify.py 2>/dev/null
+pkill -f sni-watcher.py 2>/dev/null
 killall waybar 2>/dev/null
 sleep 0.3
 gsettings set org.gnome.desktop.interface color-scheme prefer-dark
+~/.local/bin/sni-watcher.py &
 waybar &
 ~/.local/bin/auto-layout.sh &
 ~/.local/bin/waybar-calendar-notify.py &

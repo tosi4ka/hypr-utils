@@ -17,5 +17,6 @@ while true; do
         hyprctl hyprpaper preload "$FULL" 2>/dev/null
         hyprctl hyprpaper wallpaper "$MON,$FULL" 2>/dev/null
     done <<< "$MONITORS"
+    ln -sf "$FULL" ~/.config/hypr/wallpaper
     sleep "$SECS"
 done

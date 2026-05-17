@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 import calendar
 import datetime
+import glob
+import json
 import os
+import select
+import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -154,6 +159,91 @@ eventbox {{
     margin-left: 4px;
 }}
 """.encode()
+
+def _hypr_cursorpos():
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    for base in (runtime, "/tmp"):
+        path = f"{base}/hypr/{sig}/.socket.sock"
+        if os.path.exists(path):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                    s.connect(path)
+                    s.sendall(b"j/cursorpos")
+                    data = s.recv(4096)
+                pos = json.loads(data.decode())
+                return pos["x"], pos["y"]
+            except Exception:
+                pass
+    return None, None
+
+
+def watch_mouse_clicks(on_click, mon_x, mon_y, mon_w, mon_h):
+    EV_KEY, BTN_LEFT, BTN_TOUCH = 1, 0x110, 0x14A
+    fds = []
+    for dev in sorted(glob.glob("/dev/input/event*")):
+        try:
+            fds.append(open(dev, "rb", buffering=0))
+        except OSError:
+            pass
+    if not fds:
+        return
+    try:
+        while True:
+            r, _, _ = select.select(fds, [], [], 1.0)
+            for f in r:
+                try:
+                    raw = os.read(f.fileno(), 24 * 64)
+                except OSError:
+                    continue
+                for off in range(0, len(raw) - 23, 24):
+                    _, _, type_, code, value = struct.unpack_from("QQHHi", raw, off)
+                    if type_ == EV_KEY and code in (BTN_LEFT, BTN_TOUCH) and value == 1:
+                        cx, cy = _hypr_cursorpos()
+                        if cx is not None:
+                            if not (mon_x <= cx < mon_x + mon_w and mon_y <= cy < mon_y + mon_h):
+                                GLib.idle_add(on_click)
+                                return
+    except Exception:
+        pass
+    finally:
+        for f in fds:
+            try:
+                f.close()
+            except Exception:
+                pass
+
+
+def watch_hyprland(on_focus_change):
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    candidates = [
+        f"/tmp/hypr/{sig}/.socket2.sock",
+        f"{runtime}/hypr/{sig}/.socket2.sock",
+    ]
+    path = next((p for p in candidates if os.path.exists(p)), candidates[0])
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(path)
+        buf = ""
+        while True:
+            data = sock.recv(4096).decode("utf-8", errors="ignore")
+            if not data:
+                break
+            buf += data
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                if line.startswith("activewindow>>"):
+                    cls = line.split(">>", 1)[1].split(",")[0]
+                    if cls:
+                        GLib.idle_add(on_focus_change)
+                        return
+                if line.startswith("workspace>>"):
+                    GLib.idle_add(on_focus_change)
+                    return
+    except Exception:
+        pass
+
 
 WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 MONTHS_RU = [
@@ -395,6 +485,31 @@ class CalendarPopup(Gtk.Window):
         self.btn_row.set_visible(False)
 
         threading.Thread(target=self.load_events_async, daemon=True).start()
+
+        cx, cy = _hypr_cursorpos()
+        if cx is None:
+            cx, cy = 0, 0
+        else:
+            cx, cy = int(cx), int(cy)
+        display = Gdk.Display.get_default()
+        active_monitor = display.get_monitor(0)
+        for i in range(display.get_n_monitors()):
+            mon = display.get_monitor(i)
+            geo = mon.get_geometry()
+            if geo.x <= cx < geo.x + geo.width and geo.y <= cy < geo.y + geo.height:
+                active_monitor = mon
+                break
+        geo = active_monitor.get_geometry()
+        threading.Thread(
+            target=watch_mouse_clicks,
+            args=(self.quit, geo.x, geo.y, geo.width, geo.height),
+            daemon=True,
+        ).start()
+        GLib.timeout_add(400, self._start_ipc_watcher)
+
+    def _start_ipc_watcher(self):
+        threading.Thread(target=watch_hyprland, args=(self.quit,), daemon=True).start()
+        return False
 
     def _on_window_click(self, *_):
         # popup_eb swallows its own clicks (returns True), so this handler

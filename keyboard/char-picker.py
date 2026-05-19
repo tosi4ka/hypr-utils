@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
-import fcntl
+import json
 import os
+import re
 import selectors
-import struct
+import signal
+import socket
 import subprocess
 import sys
 import threading
 import time
 
 import evdev
-import gi
 from evdev import InputDevice
 from evdev import ecodes as e
-from Xlib import X
-from Xlib import display as xdisplay
-from Xlib.ext import xtest
-
-gi.require_version("Atspi", "2.0")
-from gi.repository import Atspi as _Atspi
 
 VARIANTS = {
     e.KEY_A: ["à", "á", "â", "ã", "ä", "å", "æ", "ā", "ă", "ą"],
@@ -43,181 +38,174 @@ VARIANTS = {
 }
 
 HOLD_TIME = 0.45
-DISPLAY = os.environ.get("DISPLAY", ":0")
-XAUTHORITY = os.environ.get("XAUTHORITY", os.path.expanduser("~/.Xauthority"))
-ROFI = "/usr/bin/rofi"
-XDOTOOL = "/usr/bin/xdotool"
-XSET = "/usr/bin/xset"
-EVIOCSREP = 0x40084503
+POPUP = os.path.expanduser("~/.local/bin/char-picker-popup.py")
+
+_original_repeat_delay = None
+_is_latin = True  # updated by _watch_layout() thread
 
 
-def xenv():
-    return {**os.environ, "DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY}
-
-
-def x11_repeat(on: bool):
-    if _xdpy and _libx:
-        try:
-            if on:
-                _libx.XAutoRepeatOn(_xdpy)
-            else:
-                _libx.XAutoRepeatOff(_xdpy)
-            _libx.XFlush(_xdpy)
-            return
-        except Exception as ex:
-            print(f"[picker] x11_repeat error: {ex}", flush=True)
-    subprocess.run(
-        [XSET, "r", "on" if on else "off"],
-        env=xenv(),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
-def kernel_repeat(kbd, delay, period):
-    try:
-        fcntl.ioctl(kbd.fd, EVIOCSREP, struct.pack("II", delay, period))
-    except Exception as ex:
-        print(f"[picker] kernel_repeat error: {ex}", flush=True)
-
-
-def fake_keyup(kc):
-    try:
-        dpy = xdisplay.Display(DISPLAY)
-        xtest.fake_input(dpy, X.KeyRelease, kc + 8)
-        dpy.flush()
-        dpy.close()
-    except Exception as ex:
-        print(f"[picker] fake_keyup: {ex}", flush=True)
-
-
-def show_rofi(variants):
-    cx, cy = get_caret_pos()
-    try:
-        win_id = (
-            subprocess.check_output([XDOTOOL, "getactivewindow"], env=xenv())
-            .decode()
-            .strip()
-        )
-    except Exception:
-        win_id = None
-    try:
-        r = subprocess.run(
-            [
-                "/home/tosi4ka/.local/bin/char-picker-popup.py",
-                " ".join(variants),
-                str(cx),
-                str(cy),
-            ],
-            capture_output=True,
-            timeout=30,
-            env=xenv(),
-        )
-        if r.returncode == 0:
-            s = r.stdout.decode("utf-8").strip()
-            return s if s in variants else None, win_id
-    except Exception as ex:
-        print(f"[picker] popup error: {ex}", flush=True)
-    return None, win_id
-
-
-def _find_focused_atspi(obj, depth=0):
-    if depth > 6:
-        return None
-    try:
-        if obj.get_state_set().contains(_Atspi.StateType.FOCUSED):
-            return obj
-        for i in range(min(obj.get_child_count(), 30)):
-            child = obj.get_child_at_index(i)
-            if child:
-                result = _find_focused_atspi(child, depth + 1)
-                if result:
-                    return result
-    except Exception:
-        pass
+def _hypr_socket():
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    for base in (runtime, "/tmp"):
+        path = f"{base}/hypr/{sig}/.socket.sock"
+        if os.path.exists(path):
+            return path
     return None
 
 
-def get_caret_pos():
-    result = []
+def _hypr_cmd(cmd):
+    path = _hypr_socket()
+    if not path:
+        return
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(path)
+            s.sendall(cmd.encode())
+            s.recv(256)
+    except Exception:
+        pass
 
-    def _worker():
+
+def _get_original_repeat_delay():
+    global _original_repeat_delay
+    if _original_repeat_delay is None:
+        # Read from config file — immune to our own runtime changes
         try:
-            _Atspi.init()
-            desktop = _Atspi.get_desktop(0)
-            for i in range(desktop.get_child_count()):
-                app = desktop.get_child_at_index(i)
-                if not app:
-                    continue
-                focused = _find_focused_atspi(app)
-                if focused:
-                    try:
-                        text = focused.get_text_iface()
-                        offset = text.get_caret_offset()
-                        rect = text.get_character_extents(
-                            offset, _Atspi.CoordType.SCREEN
-                        )
-                        if rect.height > 0:
-                            result.append((rect.x, rect.y + rect.height))
-                    except Exception:
-                        pass
+            cfg = os.path.expanduser("~/.config/hypr/hyprland.conf")
+            with open(cfg) as f:
+                for line in f:
+                    m = re.search(r'\brepeat_delay\s*=\s*(\d+)', line)
+                    if m:
+                        _original_repeat_delay = int(m.group(1))
+                        return _original_repeat_delay
         except Exception:
             pass
-
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
-    t.join(timeout=0.4)
-    return result[0] if result else (-1, -1)
-
-
-import ctypes as _ct
-
-
-class _XkbState(_ct.Structure):
-    _fields_ = [
-        ("group", _ct.c_ubyte),
-        ("locked_group", _ct.c_ubyte),
-        ("base_group", _ct.c_ushort),
-        ("latched_group", _ct.c_ushort),
-        ("mods", _ct.c_ubyte),
-        ("base_mods", _ct.c_ubyte),
-        ("latched_mods", _ct.c_ubyte),
-        ("locked_mods", _ct.c_ubyte),
-        ("compat_state", _ct.c_ubyte),
-        ("grab_mods", _ct.c_ubyte),
-        ("compat_grab_mods", _ct.c_ubyte),
-        ("lookup_mods", _ct.c_ubyte),
-        ("compat_lookup_mods", _ct.c_ubyte),
-        ("ptr_buttons", _ct.c_ushort),
-    ]
+        # Fallback: hyprctl with sanity check (>= 5000 means our script left it broken)
+        try:
+            r = subprocess.run(
+                ["hyprctl", "getoption", "input:repeat_delay", "-j"],
+                capture_output=True, text=True, timeout=1,
+            )
+            val = json.loads(r.stdout).get("int", 600)
+            _original_repeat_delay = val if val < 5000 else 600
+        except Exception:
+            _original_repeat_delay = 600
+    return _original_repeat_delay
 
 
-try:
-    _libx = _ct.cdll.LoadLibrary("libX11.so.6")
-    _libx.XOpenDisplay.restype = _ct.c_void_p
-    _libx.XOpenDisplay.argtypes = [_ct.c_char_p]
-    _libx.XkbGetState.argtypes = [_ct.c_void_p, _ct.c_uint, _ct.POINTER(_XkbState)]
-    _libx.XkbGetState.restype = _ct.c_int
-    _libx.XCloseDisplay.argtypes = [_ct.c_void_p]
-    _libx.XAutoRepeatOn.argtypes = [_ct.c_void_p]
-    _libx.XAutoRepeatOn.restype = _ct.c_int
-    _libx.XAutoRepeatOff.argtypes = [_ct.c_void_p]
-    _libx.XAutoRepeatOff.restype = _ct.c_int
-    _libx.XFlush.argtypes = [_ct.c_void_p]
-    _libx.XFlush.restype = _ct.c_int
-    _xdpy = _libx.XOpenDisplay(DISPLAY.encode())
-except Exception:
-    _libx = None
-    _xdpy = None
+def disable_repeat():
+    _hypr_cmd("keyword input:repeat_delay 100000")
+
+
+def restore_repeat():
+    delay = _get_original_repeat_delay()
+    _hypr_cmd(f"keyword input:repeat_delay {delay}")
 
 
 def is_latin_layout():
     try:
-        s = _XkbState()
-        _libx.XkbGetState(_xdpy, 0x0100, _ct.byref(s))
-        return s.group == 0
+        r = subprocess.run(
+            ["hyprctl", "devices", "-j"],
+            capture_output=True, text=True, timeout=0.5,
+        )
+        devices = json.loads(r.stdout)
+        kbs = [k for k in devices.get("keyboards", [])
+               if "virtual" not in k["name"]]
+        if kbs:
+            return "Russian" not in kbs[-1].get("active_keymap", "")
+        return True
     except Exception:
         return True
+
+
+def _watch_layout():
+    """Background thread: update _is_latin from Hyprland activelayout events."""
+    global _is_latin
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    path = None
+    for base in (runtime, "/tmp"):
+        p = f"{base}/hypr/{sig}/.socket2.sock"
+        if os.path.exists(p):
+            path = p
+            break
+    if not path:
+        return
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(path)
+        buf = ""
+        while True:
+            data = sock.recv(4096).decode("utf-8", errors="ignore")
+            if not data:
+                break
+            buf += data
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                if line.startswith("activelayout>>"):
+                    keymap = line.split(">>", 1)[1].split(",", 1)[-1]
+                    _is_latin = "Russian" not in keymap
+    except Exception:
+        pass
+
+
+def hypr_cursorpos():
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    for base in (runtime, "/tmp"):
+        path = f"{base}/hypr/{sig}/.socket.sock"
+        if os.path.exists(path):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                    s.connect(path)
+                    s.sendall(b"j/cursorpos")
+                    data = s.recv(4096)
+                pos = json.loads(data.decode())
+                return int(pos["x"]), int(pos["y"])
+            except Exception:
+                pass
+    return -1, -1
+
+
+_popup_proc = None
+
+
+def _get_popup_proc():
+    global _popup_proc
+    if _popup_proc is None or _popup_proc.poll() is not None:
+        _popup_proc = subprocess.Popen(
+            [sys.executable, POPUP, "--daemon"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        print("[picker] popup daemon started", flush=True)
+    return _popup_proc
+
+
+def show_popup(variants):
+    cx, cy = hypr_cursorpos()
+    try:
+        proc = _get_popup_proc()
+        cmd = " ".join(variants) + f" {cx} {cy}\n"
+        proc.stdin.write(cmd.encode())
+        proc.stdin.flush()
+        line = proc.stdout.readline().decode().strip()
+        return line if line in variants else None
+    except Exception as ex:
+        print(f"[picker] popup error: {ex}", flush=True)
+        global _popup_proc
+        _popup_proc = None
+    return None
+
+
+def type_char(chosen, n_backspace=1):
+    time.sleep(0.15)
+    for _ in range(n_backspace):
+        subprocess.run(["wtype", "-k", "BackSpace"], stderr=subprocess.DEVNULL)
+        time.sleep(0.02)
+    subprocess.run(["wtype", chosen], stderr=subprocess.DEVNULL)
 
 
 def find_keyboards():
@@ -240,77 +228,48 @@ def find_keyboards():
 
 
 def run(keyboards):
+    global _is_latin
+    _get_original_repeat_delay()  # cache before any disable_repeat() calls
+    restore_repeat()              # fix any leftover state from a previous crashed run
+
+    _is_latin = is_latin_layout()  # initial layout check (once at startup)
+    threading.Thread(target=_watch_layout, daemon=True).start()
+    _get_popup_proc()  # pre-warm popup daemon (amortize GTK import cost)
+
+    # hold_time must be shorter than repeat_delay so the popup appears before
+    # Hyprland fires the first key repeat (setting repeat_delay to 100000 does
+    # not cancel an already-queued repeat timer in Hyprland)
+    repeat_delay_s = _get_original_repeat_delay() / 1000.0
+    hold_time = max(0.25, min(HOLD_TIME, repeat_delay_s * 0.80))
+    print(f"[picker] hold_time={hold_time:.3f}s repeat_delay={repeat_delay_s:.3f}s", flush=True)
+
     sel = selectors.DefaultSelector()
     for kbd in keyboards:
         sel.register(kbd, selectors.EVENT_READ)
         print(f"[picker] monitoring: {kbd.name}", flush=True)
 
-    held = {}  # fd -> (key_code, press_time)
-    repeat_held = 0
+    # fd -> (key_code, press_time)
+    held = {}
 
     try:
         while True:
-            ready = sel.select(timeout=0.01)
+            ready = sel.select(timeout=0.01 if held else None)
             now = time.time()
 
-            for fd, (kc, pt) in list(held.items()):
-                if (now - pt) >= HOLD_TIME:
-                    del held[fd]
-                    repeat_held -= 1
+            for fd, entry in list(held.items()):
+                kc, pt, extra = entry
+                if (now - pt) < hold_time:
+                    continue
 
-                    kbd = next(k for k in keyboards if k.fd == fd)
+                del held[fd]
 
-                    try:
-                        kbd.grab()
-                    except Exception:
-                        pass
+                chosen = show_popup(VARIANTS.get(kc, []))
+                print(f"[picker] chosen: {chosen} (backspaces: {1 + extra})", flush=True)
 
-                    fake_keyup(kc)
+                restore_repeat()
 
-                    deadline = time.time() + 5.0
-                    while time.time() < deadline:
-                        for key_inner, _ in sel.select(timeout=0.02):
-                            dev = key_inner.fileobj
-                            try:
-                                for ev in dev.read():
-                                    if (
-                                        dev.fd == fd
-                                        and ev.type == e.EV_KEY
-                                        and ev.code == kc
-                                        and ev.value == 0
-                                    ):
-                                        deadline = 0
-                            except Exception:
-                                pass
-
-                    try:
-                        kbd.ungrab()
-                    except Exception:
-                        pass
-
-                    fake_keyup(kc)
-
-                    kernel_repeat(kbd, 500, 20)
-                    if repeat_held <= 0:
-                        repeat_held = 0
-                        x11_repeat(True)
-                    time.sleep(0.08)
-
-                    chosen, win_id = show_rofi(VARIANTS.get(kc, []))
-                    print(f"[picker] chosen: {chosen}", flush=True)
-                    if chosen:
-                        time.sleep(0.2)
-                        subprocess.run(
-                            [XDOTOOL, "key", "BackSpace"],
-                            env=xenv(),
-                            stderr=subprocess.DEVNULL,
-                        )
-                        time.sleep(0.05)
-                        subprocess.run(
-                            [XDOTOOL, "key", "--clearmodifiers", f"U{ord(chosen):04X}"],
-                            env=xenv(),
-                            stderr=subprocess.DEVNULL,
-                        )
+                if chosen:
+                    type_char(chosen, 1 + extra)
 
             if not ready:
                 continue
@@ -320,47 +279,42 @@ def run(keyboards):
                 try:
                     events = list(kbd.read())
                 except Exception:
+                    sel.unregister(kbd)
+                    try:
+                        kbd.close()
+                    except Exception:
+                        pass
+                    print(f"[picker] device removed: {getattr(kbd, 'name', kbd)}", flush=True)
                     continue
 
                 for ev in events:
                     if ev.type != e.EV_KEY:
                         continue
                     fd = kbd.fd
-                    if (
-                        ev.value == 1
-                        and ev.code in VARIANTS
-                        and fd not in held
-                        and is_latin_layout()
-                    ):
-                        held[fd] = (ev.code, time.time())
-                        repeat_held += 1
-                        if repeat_held == 1:
-                            x11_repeat(False)
-                        kernel_repeat(kbd, 10000, 10000)
-                        fake_keyup(ev.code)
+                    if (ev.value == 1 and ev.code in VARIANTS
+                            and fd not in held and _is_latin):
+                        held[fd] = [ev.code, time.time(), 0]
+                        disable_repeat()  # stop Hyprland repeat before it fires
+                    elif (ev.value == 1 and fd in held
+                            and held[fd][0] == ev.code):
+                        # BT firmware repeat: extra value=1 for already-held key
+                        held[fd][2] += 1
                     elif ev.value == 0 and fd in held and held[fd][0] == ev.code:
+                        # released before hold_time — normal keypress, restore repeat
                         del held[fd]
-                        repeat_held -= 1
-                        try:
-                            kbd.ungrab()
-                        except Exception:
-                            pass
-                        kernel_repeat(kbd, 500, 20)
-                        if repeat_held <= 0:
-                            repeat_held = 0
-                            x11_repeat(True)
+                        restore_repeat()
+                    elif ev.value == 1 and ev.code not in VARIANTS and fd in held:
+                        # non-variant key pressed while waiting — cancel hold
+                        del held[fd]
+                        restore_repeat()
+
     except Exception as ex:
         print(f"[picker] loop error: {ex}", flush=True)
-        x11_repeat(True)
-        for kbd in keyboards:
-            kernel_repeat(kbd, 500, 20)
-            try:
-                kbd.ungrab()
-            except Exception:
-                pass
+        restore_repeat()
 
 
 def main():
+    signal.signal(signal.SIGTERM, lambda *_: (restore_repeat(), sys.exit(0)))
     keyboards = find_keyboards()
     if not keyboards:
         print("[picker] Клавиатуры не найдены.")
@@ -371,13 +325,7 @@ def main():
         print("[picker] Нет прав. sudo usermod -aG input $USER → ребут")
         sys.exit(1)
     except KeyboardInterrupt:
-        x11_repeat(True)
-        for kbd in keyboards:
-            kernel_repeat(kbd, 500, 20)
-            try:
-                kbd.ungrab()
-            except Exception:
-                pass
+        restore_repeat()
         print("[picker] Остановлен.")
 
 
